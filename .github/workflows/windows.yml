@@ -1,0 +1,69 @@
+name: Build Windows 64-bit (M711-PRO)
+
+on:
+  push:
+    branches: [ "m711pro" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt 6.8.3 (MSVC 2022 64-bit)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2022_64'
+          modules: 'qt5compat'
+          cache: true
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install jom
+        shell: pwsh
+        run: choco install jom -y --no-progress
+
+      - name: Build
+        shell: cmd
+        run: |
+          qmake OpenRGB.pro CONFIG-=debug_and_release CONFIG+=release
+          IF %ERRORLEVEL% NEQ 0 EXIT /B %ERRORLEVEL%
+          jom
+          IF %ERRORLEVEL% NEQ 0 EXIT /B %ERRORLEVEL%
+
+      - name: Deploy Qt files
+        shell: cmd
+        run: |
+          windeployqt --no-patchqt --no-quick-import --no-translations --no-system-d3d-compiler --no-opengl-sw --no-network .\release\
+          copy "%QT_ROOT_DIR%\bin\Qt6Core5Compat.dll" .\release\
+          copy "%QT_ROOT_DIR%\bin\Qt6OpenGL.dll" .\release\
+          del /q .\release\*.obj .\release\*.cpp .\release\*.h .\release\*.pch 2>nul
+          move release "OpenRGB-M711PRO"
+
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path "OpenRGB-M711PRO" -DestinationPath "OpenRGB-M711PRO-Windows64.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenRGB-M711PRO-Windows64
+          path: OpenRGB-M711PRO-Windows64.zip
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "m711pro-${{ github.run_number }}"
+          gh release create $tag "OpenRGB-M711PRO-Windows64.zip" --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "OpenRGB 1.1 + Redragon M711-PRO (build ${{ github.run_number }})" --notes "OpenRGB 1.1 com suporte ao Redragon M711-PRO (25A7:FA07) pelo controlador Areson. Descompacte e rode OpenRGB.exe como administrador."
